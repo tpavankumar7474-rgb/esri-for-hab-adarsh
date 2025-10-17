@@ -4,23 +4,9 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-<!-- ✅ Leaflet -->
-<link
-  rel="stylesheet"
-  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-/>
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-
-<!-- ✅ MarkerCluster -->
-<link
-  rel="stylesheet"
-  href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
-/>
-<link
-  rel="stylesheet"
-  href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
-/>
-<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
 <style>
   html, body, #map {
@@ -28,23 +14,7 @@
     width: 100%;
     margin: 0;
     padding: 0;
-  }
-
-  /* === Cluster Colors === */
-  .marker-cluster-small {
-    background-color: rgba(180, 0, 0, 0.8);
-    color: #fff;
-    border: 2px solid #fff;
-  }
-  .marker-cluster-medium {
-    background-color: rgba(120, 0, 0, 0.85);
-    color: #fff;
-    border: 2px solid #fff;
-  }
-  .marker-cluster-large {
-    background-color: rgba(50, 0, 0, 0.9);
-    color: #fff;
-    border: 2px solid #fff;
+    background: #000;
   }
 
   .leaflet-tooltip {
@@ -63,43 +33,41 @@
 <div id="map"></div>
 
 <script>
-  // === Initialize Map ===
+  // === Initialize map ===
   const map = L.map("map", {
-    center: [28.4328, 45.9700], // 🟢 Default center: Hafar Al-Batin
+    center: [24.7136, 46.6753], // Riyadh
     zoom: 6,
     zoomControl: true,
     attributionControl: false,
   });
 
-  // === 🛰 Satellite Base Layer (ESRI World Imagery) ===
-  const satelliteLayer = L.tileLayer(
+  // === ESRI World Imagery (satellite) ===
+  const imagery = L.tileLayer(
     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    {
-      maxZoom: 19,
-      attribution: "© Esri, Maxar, Earthstar Geographics",
-    }
-  ).addTo(map);
+    { maxZoom: 19, minZoom: 4 }
+  );
 
-  // === 🗺 Optional: Add Roads + Labels Overlay ===
-  const roadsLabels = L.tileLayer(
-    "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-    {
-      maxZoom: 19,
-      opacity: 0.3, // slight transparency over satellite
-      attribution: "© OpenStreetMap contributors",
-    }
-  ).addTo(map);
+  // === Labels: boundaries, areas, and places ===
+  const boundaries = L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+    { maxZoom: 19, opacity: 0.9 }
+  );
 
-  // === Marker Cluster Layer ===
-  let markerLayer = L.markerClusterGroup({
-    maxClusterRadius: 20,
-    disableClusteringAtZoom: 9,
-    spiderfyOnMaxZoom: true,
-    showCoverageOnHover: false,
-  });
-  map.addLayer(markerLayer);
+  // === Labels: streets, roads, POIs ===
+  const roads = L.tileLayer(
+    "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}",
+    { maxZoom: 19, opacity: 0.9 }
+  );
 
-  // === Render Points Function ===
+  imagery.addTo(map);
+  boundaries.addTo(map);
+  roads.addTo(map);
+
+  // === Layer for markers ===
+  let markerLayer = L.layerGroup().addTo(map);
+  let selectedMarker = null;
+
+  // === Render markers ===
   function renderPoints(data) {
     markerLayer.clearLayers();
 
@@ -107,66 +75,47 @@
       const region = decodeURIComponent(row.name || "غير معروف");
       const lat = parseFloat(row.lat);
       const lon = parseFloat(row.long);
-      const access = row.access || "0%";
-      const satisfaction = row.satisfaction || "0%";
+      if (isNaN(lat) || isNaN(lon)) return;
 
-      if (!isNaN(lat) && !isNaN(lon)) {
-        // Add small random jitter to prevent overlap
-        const jitterLat = lat + (Math.random() - 0.5) * 0.002;
-        const jitterLon = lon + (Math.random() - 0.5) * 0.002;
+      const marker = L.circleMarker([lat, lon], {
+        radius: 8,
+        color: "#E1012D",
+        fillColor: "#E1012D",
+        fillOpacity: 0.9,
+        weight: 1,
+      }).addTo(markerLayer);
 
-        const satVal = parseFloat(satisfaction.replace("%", "")) || 0;
+      marker.bindTooltip(`<b>${region}</b>`, { direction: "top" });
 
-        const marker = L.circleMarker([jitterLat, jitterLon], {
-          radius: Math.min(20, 8 + satVal / 10),
-          color: "#FF3333",
-          fillColor: "#FF0000",
-          fillOpacity: 0.85,
-          weight: 1.5,
-        });
+      marker.on("click", function () {
+        // Reset previous marker color
+        if (selectedMarker) {
+          selectedMarker.setStyle({ color: "#E1012D", fillColor: "#E1012D" });
+        }
 
-        marker.bindTooltip(
-          `<b>${region}</b><br>
-           إمكانية الوصول: ${access}<br>
-           رضا السكان: ${satisfaction}`,
-          { direction: "top" }
+        // Highlight selected marker
+        marker.setStyle({ color: "#FFD700", fillColor: "#FFD700" });
+        selectedMarker = marker;
+
+        // Send message to Grafana parent
+        window.parent.postMessage(
+          { type: "mapClick", region: region },
+          "*"
         );
-
-        marker.on("click", function () {
-          window.parent.postMessage(
-            {
-              type: "mapClick",
-              region: region,
-              latitude: lat,
-              longitude: lon,
-              access: access,
-              satisfaction: satisfaction,
-            },
-            "*"
-          );
-        });
-
-        markerLayer.addLayer(marker);
-      }
+      });
     });
-
-    console.log("✅ Total rows received:", data.length);
-    console.log("✅ Markers rendered:", markerLayer.getLayers().length);
 
     if (markerLayer.getLayers().length > 0) {
       map.fitBounds(markerLayer.getBounds(), { padding: [30, 30] });
-      map.setZoom(Math.max(map.getZoom(), 7));
     }
   }
 
-  // === Listen for Messages from Grafana ===
+  // === Listen for Grafana data ===
   window.addEventListener("message", (event) => {
     const payload = event.data;
     if (!payload) return;
 
-    // ✅ Handle Grafana data
     if (payload.type === "habData" && Array.isArray(payload.data)) {
-      console.log("📩 Received data from Grafana:", payload.data.length, "records");
       renderPoints(payload.data);
     }
   });
