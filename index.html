@@ -1,124 +1,128 @@
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8" />
+  <title>خريطة حفر الباطن عالية الدقة</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-<!-- Leaflet -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- Leaflet -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-<style>
-  html, body, #map {
-    height: 100%;
-    width: 100%;
-    margin: 0;
-    padding: 0;
-    background: #000;
-  }
-
-  .leaflet-tooltip {
-    background: rgba(0, 0, 0, 0.8);
-    color: #fff;
-    border: none;
-    border-radius: 6px;
-    padding: 6px 10px;
-    font-size: 13px;
-    direction: rtl;
-    text-align: right;
-  }
-</style>
+  <style>
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: #000;
+      font-family: "TheSansArabic", sans-serif;
+    }
+    #map {
+      height: 100%;
+      width: 100%;
+    }
+    .leaflet-popup-content {
+      text-align: center;
+      direction: rtl;
+      font-size: 14px;
+    }
+  </style>
 </head>
+
 <body>
-<div id="map"></div>
+  <div id="map"></div>
 
-<script>
-  // === Initialize map ===
-  const map = L.map("map", {
-    center: [24.7136, 46.6753], // Riyadh
-    zoom: 6,
-    zoomControl: true,
-    attributionControl: false,
-  });
-
-  // === ESRI World Imagery (satellite) ===
-  const imagery = L.tileLayer(
-    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    { maxZoom: 19, minZoom: 4 }
-  );
-
-  // === Labels: boundaries, areas, and places ===
-  const boundaries = L.tileLayer(
-    "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
-    { maxZoom: 19, opacity: 0.9 }
-  );
-
-  // === Labels: streets, roads, POIs ===
-  const roads = L.tileLayer(
-    "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}",
-    { maxZoom: 19, opacity: 0.9 }
-  );
-
-  imagery.addTo(map);
-  boundaries.addTo(map);
-  roads.addTo(map);
-
-  // === Layer for markers ===
-  let markerLayer = L.layerGroup().addTo(map);
-  let selectedMarker = null;
-
-  // === Render markers ===
-  function renderPoints(data) {
-    markerLayer.clearLayers();
-
-    data.forEach((row) => {
-      const region = decodeURIComponent(row.name || "غير معروف");
-      const lat = parseFloat(row.lat);
-      const lon = parseFloat(row.long);
-      if (isNaN(lat) || isNaN(lon)) return;
-
-      const marker = L.circleMarker([lat, lon], {
-        radius: 8,
-        color: "#E1012D",
-        fillColor: "#E1012D",
-        fillOpacity: 0.9,
-        weight: 1,
-      }).addTo(markerLayer);
-
-      marker.bindTooltip(`<b>${region}</b>`, { direction: "top" });
-
-      marker.on("click", function () {
-        // Reset previous marker color
-        if (selectedMarker) {
-          selectedMarker.setStyle({ color: "#E1012D", fillColor: "#E1012D" });
-        }
-
-        // Highlight selected marker
-        marker.setStyle({ color: "#FFD700", fillColor: "#FFD700" });
-        selectedMarker = marker;
-
-        // Send message to Grafana parent
-        window.parent.postMessage(
-          { type: "mapClick", region: region },
-          "*"
-        );
-      });
+  <script>
+    // === Initialize map centered on Hafar Al-Batin ===
+    const map = L.map("map", {
+      center: [28.4322, 45.9708], // 🏙️ City center
+      zoom: 12,                   // ⬅️ Zoomed out to see full city area
+      minZoom: 5,
+      maxZoom: 22,                // 🔍 High detail available
+      zoomControl: true,
     });
 
-    if (markerLayer.getLayers().length > 0) {
-      map.fitBounds(markerLayer.getBounds(), { padding: [30, 30] });
-    }
-  }
+    // === ESRI World Imagery (High-Resolution Satellite) ===
+    const esriSatellite = L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      {
+        maxZoom: 22,
+        attribution: "© Esri, Maxar, Earthstar Geographics",
+      }
+    ).addTo(map);
 
-  // === Listen for Grafana data ===
-  window.addEventListener("message", (event) => {
-    const payload = event.data;
-    if (!payload) return;
+    // === ESRI Label Layer (shows street names, places, buildings) ===
+    const esriLabels = L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",
+      {
+        maxZoom: 22,
+        opacity: 1,
+        attribution: "© Esri",
+      }
+    ).addTo(map);
 
-    if (payload.type === "habData" && Array.isArray(payload.data)) {
-      renderPoints(payload.data);
-    }
-  });
-</script>
+    // === Marker handling ===
+    let markers = [];
+    let selectedMarker = null;
+
+    // --- Receive data from Grafana ---
+    window.addEventListener("message", (event) => {
+      if (!event.data || event.data.type !== "habData") return;
+
+      markers.forEach((m) => map.removeLayer(m));
+      markers = [];
+
+      const regionData = event.data.data || [];
+      if (!regionData.length) return;
+
+      regionData.forEach((r) => {
+        const marker = L.circleMarker([r.lat, r.long], {
+          radius: 8,
+          color: "#ff0000",
+          fillColor: "#ff0000",
+          fillOpacity: 0.9,
+          weight: 1.5,
+        })
+          .addTo(map)
+          .bindPopup(`<b>${decodeURIComponent(r.name)}</b>`)
+          .on("click", () => {
+            // Reset previous
+            if (selectedMarker) {
+              selectedMarker.setStyle({
+                color: "#ff0000",
+                fillColor: "#ff0000",
+                radius: 8,
+              });
+            }
+
+            // Highlight current
+            marker.setStyle({
+              color: "#ffff00",
+              fillColor: "#ffff00",
+              radius: 11,
+            });
+            selectedMarker = marker;
+
+            // Send region to Grafana (without reload)
+            window.parent.postMessage(
+              {
+                type: "mapClick",
+                region: decodeURIComponent(r.name),
+              },
+              "*"
+            );
+          });
+
+        markers.push(marker);
+      });
+
+      if (regionData.length > 1) {
+        const bounds = L.latLngBounds(regionData.map((r) => [r.lat, r.long]));
+        map.fitBounds(bounds, { padding: [40, 40] });
+      }
+    });
+  </script>
 </body>
 </html>
